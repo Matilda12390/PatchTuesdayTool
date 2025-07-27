@@ -18,11 +18,13 @@ You **do not need to install anything else manually** — the tool handles it fo
 ---
 
 ## 📦 What's Included
+```
 PatchTuesdayTool/
 ├── PatchTuesday.py ← Main script
 ├── requirements.txt ← Python dependencies
 ├── run_patchtuesday.bat ← Run this on Windows
 ├── README.md ← You are here
+```
 
 ## ▶️ How to Use
 
@@ -35,6 +37,7 @@ Or you can open a Command Prompt and run:
 
 ```cmd
 run_patchtuesday.bat --month Jul-2025 --microsoft --adobe
+```
 
 ⚙️ Available Options
 | Option        | Description                                       |
