@@ -46,7 +46,7 @@ run_patchtuesday.bat --month Jul-2025 --microsoft --adobe
 | `--microsoft` | Include Microsoft Patch Tuesday CVEs              |
 | `--adobe`     | Include Adobe CVEs released on Patch Tuesday      |
 
-📄 What You Get
+## 📄 What You Get
 
 After running, the tool will create an Excel file like:
 
@@ -68,13 +68,14 @@ This spreadsheet contains:
 
     Link to the original security bulletin
 
-❓ Example
+## ❓ Example
 
 To get Microsoft and Adobe CVEs for July 2025:
-
+```cmd
 run_patchtuesday.bat --month Jul-2025 --microsoft --adobe
+```
 
-💡 Tips
+## 💡 Tips
 
     You only need to run run_patchtuesday.bat — the tool sets everything up for you.
 
@@ -82,5 +83,5 @@ run_patchtuesday.bat --month Jul-2025 --microsoft --adobe
 
     Make sure you're connected to the internet.
 
-📬 Questions?
+## 📬 Questions?
 No questions allowed. 
