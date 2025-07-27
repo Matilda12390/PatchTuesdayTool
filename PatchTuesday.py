@@ -430,7 +430,7 @@ def main():
     elif args.adobe:
         start_adobe_workflow(patch_tuesday_date, month_selected)
     else:
-        print("Please specify a vendor. Currently supported: --Microsoft")
+        print("Please specify a vendor. Currently supported: --microsoft  --adobe")
         sys.exit(1)
 
 if __name__ == "__main__":
