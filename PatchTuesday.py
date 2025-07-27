@@ -411,8 +411,8 @@ def start_microsoft_workflow(year, month_abbr, patch_tuesday_date):
 
 def main():
     parser = argparse.ArgumentParser(description="Fetch Patch Tuesday vulnerability data and export to Excel.")
-    parser.add_argument("--Microsoft", action="store_true", help="Fetch data from Microsoft CVRF API feed")
-    parser.add_argument("--Adobe", action="store_true", help="Fetch data from Adobe Security Bulletin and enrich with Feedly")
+    parser.add_argument("--microsoft", action="store_true", help="Fetch data from Microsoft CVRF API feed")
+    parser.add_argument("--adobe", action="store_true", help="Fetch data from Adobe Security Bulletin and enrich with Feedly")
     parser.add_argument("month", help="Target month in format e.g. Jul-2025")
 
     args = parser.parse_args()
@@ -425,9 +425,9 @@ def main():
     month_abbr, year = month_selected.split("-")
     patch_tuesday_date = get_patch_tuesday(int(year), datetime.strptime(month_abbr, "%b").month)
 
-    if args.Microsoft:
+    if args.microsoft:
         start_microsoft_workflow(year, month_abbr, patch_tuesday_date)
-    elif args.Adobe:
+    elif args.adobe:
         start_adobe_workflow(patch_tuesday_date, month_selected)
     else:
         print("Please specify a vendor. Currently supported: --Microsoft")
