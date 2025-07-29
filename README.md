@@ -2,7 +2,7 @@
 
 # 🛠️ Patch Tuesday CVE Report Tool
 
-This tool gathers CVE (Common Vulnerabilities and Exposures) information from Microsoft and Adobe, checks exposure status on Feedly, and exports a spreadsheet of vulnerabilities for a selected month.
+This tool gathers CVE (Common Vulnerabilities and Exposures) information from **Microsoft**, **Adobe**, and **SAP**, checks exposure status on **Feedly**, and exports a spreadsheet of vulnerabilities for a selected month.
 
 No technical knowledge needed — just follow the simple steps below.
 
@@ -36,15 +36,22 @@ PatchTuesdayTool/
 Or you can open a Command Prompt and run:
 
 ```cmd
-run_patchtuesday.bat --month Jul-2025 --microsoft --adobe
+run_patchtuesday.bat --month Jul-2025 --microsoft --adobe --sap
+```
+You can also fetch everything at once using:
+```cmd
+run_patchtuesday.bat --month Jul-2025 --all
 ```
 
 ⚙️ Available Options
-| Option        | Description                                       |
-| ------------- | ------------------------------------------------- |
-| `--month`     | (Required) The month to check, format: `Jul-2025` |
-| `--microsoft` | Include Microsoft Patch Tuesday CVEs              |
-| `--adobe`     | Include Adobe CVEs released on Patch Tuesday      |
+| Option        | Description                                           |
+| ------------- | ----------------------------------------------------- |
+| `--month`     | **(Required)** The month to check, format: `Jul-2025` |
+| `--microsoft` | Include Microsoft Patch Tuesday CVEs                  |
+| `--adobe`     | Include Adobe CVEs released on Patch Tuesday          |
+| `--sap`       | Include SAP Patch Tuesday CVEs                        |
+| `--all`       | Run all of the above in one go                        |
+
 
 ## 📄 What You Get
 
@@ -70,10 +77,20 @@ This spreadsheet contains:
 
 ## ❓ Example
 
-To get Microsoft and Adobe CVEs for July 2025:
+To get CVEs from all vendors for July 2025:
 ```cmd
-run_patchtuesday.bat --month Jul-2025 --microsoft --adobe
+run_patchtuesday.bat --month Jul-2025 --all
 ```
+To fetch only Microsoft and SAP:
+```cmd
+run_patchtuesday.bat --month Jul-2025 --microsoft --sap
+```
+
+You can also just run the python script by itself if you have all the requirements installed already:
+```python
+python3 PatchTuesday.py --month Jul-2025 --all
+```
+
 
 ## 💡 Tips
 
