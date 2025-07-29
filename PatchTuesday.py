@@ -13,10 +13,12 @@ FEEDLY_URL = "https://feedly.com/cve/{}"
 
 MSRC_API_CVRF_URL = "https://api.msrc.microsoft.com/cvrf/v3.0/cvrf/{}"
 MSRC_API_CVE_URL = "https://msrc.microsoft.com/update-guide/en-US/vulnerability/{}"
+HEADERS = {"Accept": "application/json"}
 
 ADOBE_SECURITY_BULLETIN_URL = "https://helpx.adobe.com/au/security/security-bulletin.html"
 ADOBE_BASE_URL = "https://helpx.adobe.com"
-HEADERS = {"Accept": "application/json"}
+
+SAP_SECURITY_NOTES_URL = "https://support.sap.com/en/my-support/knowledge-base/security-notes-news/{}.html"
 
 # General reusable functions across Vendors
 # - save_to_excel - given the rows and filename, save the file as xlsx
@@ -32,7 +34,7 @@ def save_to_excel(rows, filename):
     ws = wb.active
     ws.title = "Vulnerabilities"
 
-    headers = ["CVE", "Title", "CVSS Score", "Publicly Disclosed", "Exploited", "Affected Products", "Release Notes"]
+    headers = ["CVE", "Title", "CVSS Score", "Public PoC", "Exploited", "Affected Products", "Release Notes"]
     ws.append(headers)
 
     for row_data in rows:
@@ -96,22 +98,42 @@ def make_vendor_request_HTML(URL, month_selected):
 
 def check_feedly(cve):
     print(f"[*] Fetching Feedly enrichment for {cve}...")
-    response = make_vendor_request_HTML(FEEDLY_URL.format(cve),"FEEDLY ERROR")
+    response = make_vendor_request_HTML(FEEDLY_URL.format(cve), "FEEDLY ERROR")
     soup = BeautifulSoup(response.text, "html.parser")
-    body_text = soup.get_text(separator=' ', strip=True)
-    # Individual strings
+
+    # Look for <h3> containing "exploitation" (case-insensitive)
+    exploitation_header = soup.find("h3", string=lambda s: s and "exploitation" in s.lower())
+
     no_poc_str = "There is no evidence that a public proof-of-concept exists."
     no_exploit_str = "There is no evidence of proof of exploitation at the moment."
 
-    # Invert logic: if the statement is not present, we assume Yes
-    public_poc = "No" if no_poc_str in body_text else "Yes"
-    exploited = "No" if no_exploit_str in body_text else "Yes"
+    if not exploitation_header:
+        # Exploitation section missing → default values
+        public_poc = "No"
+        exploited = "No"
+    else:
+        # Get the text content of the exploitation section (next sibling elements)
+        # Sometimes next_sibling might be whitespace/newline, so use find_next() to get text
+        section_text = ""
+        next_el = exploitation_header.find_next()
+        while next_el and next_el.name != "h3":  # stop at next <h3> or end
+            if isinstance(next_el, str):
+                section_text += next_el.strip() + " "
+            elif next_el.name in ["p", "div", "span"]:
+                section_text += next_el.get_text(separator=" ", strip=True) + " "
+            next_el = next_el.find_next()
+
+        section_text = section_text.lower()
+
+        public_poc = "No" if no_poc_str.lower() in section_text else "Yes"
+        exploited = "No" if no_exploit_str.lower() in section_text else "Yes"
 
     return {
         "CVE": cve,
         "Public PoC": public_poc,
         "Exploited": exploited
     }
+
 
 def enrich_cves_with_feedly(cve_list):
     for cve_entry in cve_list:
@@ -127,6 +149,89 @@ def enrich_cves_with_feedly(cve_list):
 
         # Optional: avoid hammering Feedly too fast
         time.sleep(1)
+
+# SAP specific functions
+def start_sap_workflow(patch_tuesday_date, month_selected):
+    print(f"[*] Fetching SAP Patch Tuesday data for {month_selected}...")
+    sap_cves = get_sap_cves(month_selected)
+    print(f"[*] SAP Patch Tuesday data for {month_selected} retrieved successfully")
+
+    print(f"[*] Fetching Feedly enrichment... (this will take 1 second per CVE)")
+    enrich_cves_with_feedly(sap_cves)
+    print(f"[*] Feedly enrichment retrieved successfully!")
+
+    filename = f"SAP-Patch-Tuesday-{month_selected}.xlsx"
+    save_to_excel(sap_cves, filename)
+    print(f"[+] Done. Output saved to '{filename}'.")
+
+
+
+def get_sap_cves(month_selected):
+    sap_cves = []
+
+    try:
+        # Convert 'Jul-2025' to 'july-2025' (SAP's required format for the URL).
+        full_month = datetime.strptime(month_selected, "%b-%Y").strftime("%B-%Y").lower()
+        response = make_vendor_request_HTML(SAP_SECURITY_NOTES_URL.format(full_month), month_selected)
+        soup = BeautifulSoup(response.text, "html.parser")
+
+        table = soup.find("table")
+        if not table:
+            print("[!] No SAP table found.")
+            return []
+
+        for row in table.find_all("tr")[1:]:  # Skip header row
+            cols = row.find_all("td")
+            if len(cols) < 4:
+                continue
+
+            note_link_tag = cols[0].find("a")
+            release_note_url = note_link_tag["href"].strip() if note_link_tag and note_link_tag.has_attr("href") else ""
+
+            # Title column: extract CVE and affected product
+            title_col = cols[1]
+
+            # Flatten all text and tags to check for non-CVE preamble
+            first_significant_text = title_col.get_text(strip=True)
+            first_cve_tag = title_col.find("a")
+
+            if not first_cve_tag:
+                continue
+
+            # Only allow if the full title cell starts immediately with the CVE tag, skip any "Update to Security Note released on May 2025 Patch Day:"
+            if not first_significant_text.startswith(f"[{first_cve_tag.get_text(strip=True)}]"):
+                continue
+            cve_id = first_cve_tag.get_text(strip=True).strip("[]") if first_cve_tag else "Unknown"
+            title_text = title_col.get_text(" ", strip=True)
+
+            # Extract product name
+            product_match = re.search(r'Products?\s*.*?\s+(.*?)\s+Versions?',title_text,re.IGNORECASE | re.DOTALL)
+            affected_product = product_match.group(1).strip() if product_match else "Unknown"
+
+
+            # Remove CVE and product/version lines for a cleaner title
+            title_lines = title_text.split("Product –")[0].strip()
+            clean_title = re.sub(r"\[\s*CVE-\d{4}-\d{4,7}\s*\]\s*", "", title_lines).strip()
+
+            # CVSS score
+            cvss_score = cols[3].get_text(strip=True)
+
+            # Build final row for Excel
+            sap_cves.append({
+                "CVE": cve_id,
+                "Title": clean_title,
+                "CVSS Score": cvss_score,
+                "Publicly Disclosed": "Unknown",
+                "Exploited": "Unknown",
+                "Affected Products": affected_product,
+                "Release Notes": release_note_url
+            })
+
+    except Exception as e:
+        print(f"[!] Error parsing SAP CVEs: {e}")
+
+    return sap_cves
+
 
 
 # Adobe specific functions
@@ -238,12 +343,9 @@ def extract_cve_details_from_bulletin(product_name, bulletin_url):
             if len(cells) < len(col_map):
                 continue
 
-            vuln_cat     = cells[col_map["vuln_cat"]].get_text(strip=True)
-            impact       = cells[col_map["impact"]].get_text(strip=True)
-            severity     = cells[col_map["severity"]].get_text(strip=True)
-            cvss_score   = cells[col_map["cvss_score"]].get_text(strip=True)
-            cvss_vector  = cells[col_map["cvss_vector"]].get_text(strip=True)
-            cve_raw      = cells[col_map["cve_number"]].get_text(strip=True)
+            vuln_cat    = cells[col_map["vuln_cat"]].get_text(strip=True)
+            cvss_score  = cells[col_map["cvss_score"]].get_text(strip=True)
+            cve_raw     = cells[col_map["cve_number"]].get_text(strip=True)
 
 
             # CVE Numbers may be separated by commas, spaces, or newlines
@@ -251,14 +353,13 @@ def extract_cve_details_from_bulletin(product_name, bulletin_url):
 
             for cve in cve_list:
                 cve_details.append({
-                    "Product": product_name,
-                    "Bulletin URL": bulletin_url,
                     "CVE": cve,
-                    "Vulnerability Category": vuln_cat,
-                    "Vulnerability Impact": impact,
-                    "Severity": severity,
-                    "CVSS Base Score": cvss_score,
-                    "CVSS Vector": cvss_vector
+                    "Title": vuln_cat,
+                    "CVSS Score": cvss_score,
+                    "Publicly Disclosed": "Unknown",  # Can fill this in later via Feedly
+                    "Exploited": "Unknown",           # Same here
+                    "Affected Products": product_name,
+                    "Release Notes": bulletin_url
                 })
 
 
@@ -291,20 +392,6 @@ def find_vuln_details_table(soup):
                     return next_el
     return None
 
-def convert_adobe_rows(adobe_rows):
-    converted = []
-    for row in adobe_rows:
-        converted.append({
-            "CVE": row.get("CVE", ""),
-            "Title": row.get("Vulnerability Category", ""),
-            "CVSS Score": row.get("CVSS Base Score", ""),
-            "Publicly Disclosed": row.get("Public PoC", "Unknown"),
-            "Exploited": row.get("Exploited", "Unknown"),
-            "Affected Products": row.get("Product", ""),
-            "Release Notes": row.get("Bulletin URL", "")
-        })
-    return converted
-
 
 def start_adobe_workflow(patch_tuesday_date, month_selected):
     print(f"[*] Fetching Adobe Patch Tuesday data for {month_selected}...")
@@ -316,9 +403,8 @@ def start_adobe_workflow(patch_tuesday_date, month_selected):
     print(f"[*] Fetching Feedly enrichment... (this will take 1 second per CVE)")
     enrich_cves_with_feedly(all_cves)
     print(f"[*] Feedly enrichment retrieved successfully!")
-    rows = convert_adobe_rows(all_cves)
     filename = f"Adobe-Patch-Tuesday-{month_selected}.xlsx"
-    save_to_excel(rows, filename)
+    save_to_excel(all_cves, filename)
     print(f"[+] Done. Output saved to '{filename}'.")
 
 
@@ -386,7 +472,7 @@ def extract_vulnerability_info_microsoft(doc, patch_tuesday_date):
             "CVE": cve,
             "Title": title,
             "CVSS Score": cvss_base,
-            "Publicly Disclosed": disclosed,
+            "Public PoC": disclosed,
             "Exploited": exploited,
             "Affected Products": ", ".join(sorted(product_names)),
             "Release Notes": release_note
@@ -413,6 +499,8 @@ def main():
     parser = argparse.ArgumentParser(description="Fetch Patch Tuesday vulnerability data and export to Excel.")
     parser.add_argument("--microsoft", action="store_true", help="Fetch data from Microsoft CVRF API feed")
     parser.add_argument("--adobe", action="store_true", help="Fetch data from Adobe Security Bulletin and enrich with Feedly")
+    parser.add_argument("--sap", action="store_true", help="Fetch data from SAP Security Notes and enrich with Feedly")
+    parser.add_argument("--all", action="store_true", help="Get all data from Microsoft, Adobe and SAP")
     parser.add_argument("month", help="Target month in format e.g. Jul-2025")
 
     args = parser.parse_args()
@@ -425,13 +513,20 @@ def main():
     month_abbr, year = month_selected.split("-")
     patch_tuesday_date = get_patch_tuesday(int(year), datetime.strptime(month_abbr, "%b").month)
 
-    if args.microsoft:
+    if args.all:
         start_microsoft_workflow(year, month_abbr, patch_tuesday_date)
-    elif args.adobe:
         start_adobe_workflow(patch_tuesday_date, month_selected)
+        start_sap_workflow(patch_tuesday_date, month_selected)
     else:
-        print("Please specify a vendor. Currently supported: --microsoft  --adobe")
-        sys.exit(1)
+        if args.microsoft:
+            start_microsoft_workflow(year, month_abbr, patch_tuesday_date)
+        if args.adobe:
+            start_adobe_workflow(patch_tuesday_date, month_selected)
+        if args.sap:
+            start_sap_workflow(patch_tuesday_date, month_selected)
+        else:
+            print("Please specify a vendor. Currently supported: --microsoft  --adobe  --sap  --all")
+            sys.exit(1)
 
 if __name__ == "__main__":
     main()
