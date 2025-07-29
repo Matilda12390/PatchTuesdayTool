@@ -68,7 +68,7 @@ def get_patch_tuesday(target_year, target_month):
 
 def make_vendor_request_JSON(URL, month_selected):
     try:
-        response = requests.get(URL.format(month_selected), headers=HEADERS)
+        response = requests.get(URL, headers=HEADERS)
         response.raise_for_status()  # raises HTTPError for bad status codes
         return response.json()
     except requests.exceptions.HTTPError as http_err:
@@ -151,6 +151,8 @@ def enrich_cves_with_feedly(cve_list):
         time.sleep(1)
 
 # SAP specific functions
+# - get_sap_cves - nice and easy, we scrape a single page of all the information in the table
+# - start_sap_workflow - start of SAP hell
 def start_sap_workflow(patch_tuesday_date, month_selected):
     print(f"[*] Fetching SAP Patch Tuesday data for {month_selected}...")
     sap_cves = get_sap_cves(month_selected)
@@ -247,7 +249,7 @@ def get_sap_cves(month_selected):
 def get_adobe_product_links(soup, patch_tuesday_date):
     product_links = []
     # Parse each row in the security bulletin table
-    table = soup.find("table")  # ✅ only the first table
+    table = soup.find("table")  # only the first table
     if not table:
         print("[!] No table found on bulletin page.")
         return []
@@ -302,8 +304,7 @@ def extract_cve_details_from_bulletin(product_name, bulletin_url):
         response = make_vendor_request_HTML(bulletin_url, product_name)
         soup = BeautifulSoup(response.text, "html.parser")
 
-        # Find the table by header or a unique CSS selector
-        # This depends on the actual page layout, but let's try by header text:
+        # Find the table by header
         table = find_vuln_details_table(soup)
         if not table:
             print(f"[!] Could not locate 'Vulnerability Details' table on {bulletin_url}")
@@ -356,8 +357,8 @@ def extract_cve_details_from_bulletin(product_name, bulletin_url):
                     "CVE": cve,
                     "Title": vuln_cat,
                     "CVSS Score": cvss_score,
-                    "Publicly Disclosed": "Unknown",  # Can fill this in later via Feedly
-                    "Exploited": "Unknown",           # Same here
+                    "Publicly Disclosed": "Unknown",  
+                    "Exploited": "Unknown",           
                     "Affected Products": product_name,
                     "Release Notes": bulletin_url
                 })
@@ -435,7 +436,7 @@ def extract_vulnerability_info_microsoft(doc, patch_tuesday_date):
         except Exception:
             continue  # skip if date is malformed
 
-        if not (start_of_month <= pub_date <= patch_tuesday_date):
+        if not (start_of_month <= pub_date <= patch_tuesday_date): # MAY BREAK - if you need all vulns in a month with no end date, replace line with if not (start_of_month <= pub_date)
             continue  # skip CVEs not published from the start of the month to patch tuesday aka not included in the security update notes. We specify an end date in case the script is being run later in the month
 
         cve = vuln.get("CVE", "N/A")
@@ -485,7 +486,7 @@ def start_microsoft_workflow(year, month_abbr, patch_tuesday_date):
     month_normalized = f"{year}-{month_abbr}"
     
     print(f"[*] Fetching Microsoft Patch Tuesday data for {month_normalized}...")
-    doc = make_vendor_request_JSON(MSRC_API_CVRF_URL, month_normalized)
+    doc = make_vendor_request_JSON(MSRC_API_CVRF_URL.format(month_normalized), month_normalized)
     print(f"[*] Microsoft Patch Tuesday data for {month_normalized} retrieved successfully")
     rows = extract_vulnerability_info_microsoft(doc,patch_tuesday_date)
 
