@@ -30,6 +30,9 @@ SAP_SECURITY_NOTES_URL = "https://support.sap.com/en/my-support/knowledge-base/s
 
 
 def save_to_excel(rows, filename):
+    if not rows:
+        print(f"[!] No content found for {filename}. No file written.")
+        return
     wb = Workbook()
     ws = wb.active
     ws.title = "Vulnerabilities"
@@ -49,7 +52,14 @@ def save_to_excel(rows, filename):
             url_cell.hyperlink = url                  # actual hyperlink
             url_cell.font = Font(underline="single", color="0000FF")
 
-    wb.save(filename)
+    try:
+        wb.save(filename)
+    except PermissionError:
+        print(f"[!] Permission denied while saving '{filename}'. Is it open in Excel?")
+        sys.exit(1)
+    except Exception as e:
+        print(f"[!] Failed to save Excel file '{filename}': {e}")
+        sys.exit(1)
 
 def get_patch_tuesday(target_year, target_month):
     # Find the first day of the month
@@ -65,27 +75,16 @@ def get_patch_tuesday(target_year, target_month):
     patch_tuesday = first_tuesday + timedelta(days=7)
     return patch_tuesday.date()
 
-
-def make_vendor_request_JSON(URL, month_selected):
+def make_vendor_request(URL, month_selected, type):
     try:
-        response = requests.get(URL, headers=HEADERS)
-        response.raise_for_status()  # raises HTTPError for bad status codes
-        return response.json()
-    except requests.exceptions.HTTPError as http_err:
-        if response.status_code == 404:
-            print(f"[404] Patch Tuesday release for month '{month_selected}' not found.")
-        else:
-            print(f"[HTTP {response.status_code}] Error fetching release '{month_selected}': {http_err}")
-        sys.exit(1)
-    except requests.exceptions.RequestException as e:
-        print(f"[!] Connection error or invalid response: {e}")
-        sys.exit(1)
-
-def make_vendor_request_HTML(URL, month_selected):
-    try:
-        response = requests.get(URL)
-        response.raise_for_status()  # raises HTTPError for bad status codes
-        return response
+        if type == "HTML":
+            response = requests.get(URL)
+            response.raise_for_status()  # raises HTTPError for bad status codes
+            return response
+        elif type == "JSON":
+            response = requests.get(URL, headers=HEADERS)
+            response.raise_for_status()  # raises HTTPError for bad status codes
+            return response.json()
     except requests.exceptions.HTTPError as http_err:
         if response.status_code == 404:
             print(f"[404] Patch Tuesday release for month '{month_selected}' not found.")
@@ -98,8 +97,11 @@ def make_vendor_request_HTML(URL, month_selected):
 
 def check_feedly(cve):
     print(f"[*] Fetching Feedly enrichment for {cve}...")
-    response = make_vendor_request_HTML(FEEDLY_URL.format(cve), "FEEDLY ERROR")
+    response = make_vendor_request(FEEDLY_URL.format(cve), "FEEDLY ERROR", "HTML")
     soup = BeautifulSoup(response.text, "html.parser")
+    if not soup or not soup.body:
+        print(f"[!] Empty or malformed Feedly response for {cve}")
+        return {"CVE": cve, "Public PoC": "Unknown", "Exploited": "Unknown"}
 
     # Look for <h3> containing "exploitation" (case-insensitive)
     exploitation_header = soup.find("h3", string=lambda s: s and "exploitation" in s.lower())
@@ -113,10 +115,9 @@ def check_feedly(cve):
         exploited = "No"
     else:
         # Get the text content of the exploitation section (next sibling elements)
-        # Sometimes next_sibling might be whitespace/newline, so use find_next() to get text
         section_text = ""
         next_el = exploitation_header.find_next()
-        while next_el and next_el.name != "h3":  # stop at next <h3> or end
+        while next_el and next_el.name != "h3":
             if isinstance(next_el, str):
                 section_text += next_el.strip() + " "
             elif next_el.name in ["p", "div", "span"]:
@@ -125,8 +126,13 @@ def check_feedly(cve):
 
         section_text = section_text.lower()
 
-        public_poc = "No" if no_poc_str.lower() in section_text else "Yes"
-        exploited = "No" if no_exploit_str.lower() in section_text else "Yes"
+        if not section_text.strip():
+            print(f"[!] Exploitation section exists but is empty for {cve}")
+            public_poc = "Unknown"
+            exploited = "Unknown"
+        else:
+            public_poc = "No" if no_poc_str.lower() in section_text else "Yes"
+            exploited = "No" if no_exploit_str.lower() in section_text else "Yes"
 
     return {
         "CVE": cve,
@@ -134,18 +140,21 @@ def check_feedly(cve):
         "Exploited": exploited
     }
 
-
 def enrich_cves_with_feedly(cve_list):
     for cve_entry in cve_list:
         cve_id = cve_entry.get("CVE")
         if not cve_id:
             continue
 
-        feedly_info = check_feedly(cve_id)
-
-        # Add to the existing CVE record
-        cve_entry["Public PoC"] = feedly_info["Public PoC"]
-        cve_entry["Exploited"] = feedly_info["Exploited"]
+        try:
+            feedly_info = check_feedly(cve_id)
+            # Add to the existing CVE record
+            cve_entry["Public PoC"] = feedly_info["Public PoC"]
+            cve_entry["Exploited"] = feedly_info["Exploited"]
+        except Exception as e:
+            print(f"[!] Error enriching CVE {cve_id} with Feedly: {e}")
+            cve_entry["Public PoC"] = "Unknown"
+            cve_entry["Exploited"] = "Unknown"
 
         # Optional: avoid hammering Feedly too fast
         time.sleep(1)
@@ -158,6 +167,7 @@ def start_sap_workflow(patch_tuesday_date, month_selected):
     sap_cves = get_sap_cves(month_selected)
     print(f"[*] SAP Patch Tuesday data for {month_selected} retrieved successfully")
 
+    # MAY BREAK - if Feedly enrichment breaks and needs to be removed, remove the below 3 lines
     print(f"[*] Fetching Feedly enrichment... (this will take 1 second per CVE)")
     enrich_cves_with_feedly(sap_cves)
     print(f"[*] Feedly enrichment retrieved successfully!")
@@ -166,15 +176,13 @@ def start_sap_workflow(patch_tuesday_date, month_selected):
     save_to_excel(sap_cves, filename)
     print(f"[+] Done. Output saved to '{filename}'.")
 
-
-
 def get_sap_cves(month_selected):
     sap_cves = []
 
     try:
         # Convert 'Jul-2025' to 'july-2025' (SAP's required format for the URL).
         full_month = datetime.strptime(month_selected, "%b-%Y").strftime("%B-%Y").lower()
-        response = make_vendor_request_HTML(SAP_SECURITY_NOTES_URL.format(full_month), month_selected)
+        response = make_vendor_request(SAP_SECURITY_NOTES_URL.format(full_month), month_selected, "HTML")
         soup = BeautifulSoup(response.text, "html.parser")
 
         table = soup.find("table")
@@ -198,6 +206,7 @@ def get_sap_cves(month_selected):
             first_cve_tag = title_col.find("a")
 
             if not first_cve_tag:
+                print(f"[!] Skipping row with missing CVE hyperlink in SAP table at {SAP_SECURITY_NOTES_URL.format(full_month)}")
                 continue
 
             # Only allow if the full title cell starts immediately with the CVE tag, skip any "Update to Security Note released on May 2025 Patch Day:"
@@ -209,6 +218,9 @@ def get_sap_cves(month_selected):
             # Extract product name
             product_match = re.search(r'Products?\s*.*?\s+(.*?)\s+Versions?',title_text,re.IGNORECASE | re.DOTALL)
             affected_product = product_match.group(1).strip() if product_match else "Unknown"
+            if not product_match:
+                print(f"[!] Could not extract product info from title: '{title_text[:80]}...' on {release_note_url}")
+                affected_product = "Unknown"
 
 
             # Remove CVE and product/version lines for a cleaner title
@@ -234,8 +246,6 @@ def get_sap_cves(month_selected):
 
     return sap_cves
 
-
-
 # Adobe specific functions
 # Adobe sucks
 # - get_adobe_product_links - starting from the initial security bulletin table page, scrape all the product security adversories for the month
@@ -246,7 +256,13 @@ def get_sap_cves(month_selected):
 # - convert_adobe_rows - convert the info we have on the adoble vulns to standard format for output
 # - start_adobe_workflow - start adoble hell
 
-def get_adobe_product_links(soup, patch_tuesday_date):
+def get_adobe_product_links(patch_tuesday_date, month_selected):
+    print(f"[*] Fetching Adobe Patch Tuesday data for {month_selected}...")
+    response = make_vendor_request(ADOBE_SECURITY_BULLETIN_URL, month_selected, "HTML")
+    print(f"[*] Adobe Patch Tuesday data for {month_selected} retrieved successfully")
+
+    soup = BeautifulSoup(response.text, "html.parser")
+
     product_links = []
     # Parse each row in the security bulletin table
     table = soup.find("table")  # only the first table
@@ -301,7 +317,7 @@ def extract_adobe_cves(product_links):
 
 def extract_cve_details_from_bulletin(product_name, bulletin_url):
     try:
-        response = make_vendor_request_HTML(bulletin_url, product_name)
+        response = make_vendor_request(bulletin_url, product_name, "HTML")
         soup = BeautifulSoup(response.text, "html.parser")
 
         # Find the table by header
@@ -336,6 +352,7 @@ def extract_cve_details_from_bulletin(product_name, bulletin_url):
         missing_cols = [k for k in expected_cols if k not in col_map]
         if missing_cols:
             print(f"[!] Missing columns {missing_cols} in table headers at {bulletin_url}")
+            print(f"    Found headers: {headers}")
             return []
 
         cve_details = []
@@ -393,22 +410,18 @@ def find_vuln_details_table(soup):
                     return next_el
     return None
 
-
 def start_adobe_workflow(patch_tuesday_date, month_selected):
-    print(f"[*] Fetching Adobe Patch Tuesday data for {month_selected}...")
-    response = make_vendor_request_HTML(ADOBE_SECURITY_BULLETIN_URL, month_selected)
-    print(f"[*] Adobe Patch Tuesday data for {month_selected} retrieved successfully")
-    soup = BeautifulSoup(response.text, "html.parser")
-    product_links = get_adobe_product_links(soup, patch_tuesday_date)
+    product_links = get_adobe_product_links(patch_tuesday_date, month_selected)
     all_cves = extract_adobe_cves(product_links)
+
+    # MAY BREAK - if Feedly enrichment breaks and needs to be removed, remove the below 3 lines
     print(f"[*] Fetching Feedly enrichment... (this will take 1 second per CVE)")
     enrich_cves_with_feedly(all_cves)
     print(f"[*] Feedly enrichment retrieved successfully!")
+
     filename = f"Adobe-Patch-Tuesday-{month_selected}.xlsx"
     save_to_excel(all_cves, filename)
     print(f"[+] Done. Output saved to '{filename}'.")
-
-
 
 # Microsoft specific functions
 #  - resolve_product_name_microsoft - the affected products are just listed as IDs in the CVE information returned by the API, gotta convert to product name by checking a different section of the API response
@@ -465,6 +478,8 @@ def extract_vulnerability_info_microsoft(doc, patch_tuesday_date):
         for product_status in vuln.get("ProductStatuses", []):
             for pid in product_status.get("ProductID", []):
                 product_name = resolve_product_name_microsoft(pid, doc)
+                if product_name == pid:
+                    print(f"[!] Product ID '{pid}' could not be resolved for CVE {cve}")
                 product_names.add(product_name)
 
         release_note = MSRC_API_CVE_URL.format(cve)
@@ -486,9 +501,12 @@ def start_microsoft_workflow(year, month_abbr, patch_tuesday_date):
     month_normalized = f"{year}-{month_abbr}"
     
     print(f"[*] Fetching Microsoft Patch Tuesday data for {month_normalized}...")
-    doc = make_vendor_request_JSON(MSRC_API_CVRF_URL.format(month_normalized), month_normalized)
+    doc = make_vendor_request(MSRC_API_CVRF_URL.format(month_normalized), month_normalized, "JSON")
     print(f"[*] Microsoft Patch Tuesday data for {month_normalized} retrieved successfully")
+
+    print(f"[*] Fetching Microsoft API data for {month_normalized}...")
     rows = extract_vulnerability_info_microsoft(doc,patch_tuesday_date)
+    print(f"[*] Microsoft API data for {month_normalized} retrieved successfully")
 
     filename = f"Microsoft_Patch_Tuesday_{month_abbr}-{year}.xlsx"
     save_to_excel(rows, filename)
