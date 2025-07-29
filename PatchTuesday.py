@@ -514,20 +514,23 @@ def main():
     month_abbr, year = month_selected.split("-")
     patch_tuesday_date = get_patch_tuesday(int(year), datetime.strptime(month_abbr, "%b").month)
 
+    # If --all is set, run everything
     if args.all:
         start_microsoft_workflow(year, month_abbr, patch_tuesday_date)
         start_adobe_workflow(patch_tuesday_date, month_selected)
         start_sap_workflow(patch_tuesday_date, month_selected)
-    else:
+    # If at least one individual flag is set
+    elif args.microsoft or args.adobe or args.sap:
         if args.microsoft:
             start_microsoft_workflow(year, month_abbr, patch_tuesday_date)
         if args.adobe:
             start_adobe_workflow(patch_tuesday_date, month_selected)
         if args.sap:
             start_sap_workflow(patch_tuesday_date, month_selected)
-        else:
-            print("Please specify a vendor. Currently supported: --microsoft  --adobe  --sap  --all")
-            sys.exit(1)
+    # No valid vendor flag passed
+    else:
+        print("Error: Please specify a vendor. Supported options: --microsoft  --adobe  --sap  --all")
+        sys.exit(1)
 
 if __name__ == "__main__":
     main()
