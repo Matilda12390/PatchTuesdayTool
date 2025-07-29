@@ -1,5 +1,3 @@
-# PatchTuesdayExport
-
 # 🛠️ Patch Tuesday CVE Report Tool
 
 This tool gathers CVE (Common Vulnerabilities and Exposures) information from **Microsoft**, **Adobe**, and **SAP**, checks exposure status on **Feedly**, and exports a spreadsheet of vulnerabilities for a selected month.
