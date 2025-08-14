@@ -5,7 +5,7 @@ REM Supports multiple vendor selection
 REM ===============================================
 
 REM 1. Detect portable Python
-SET "PORTABLE_PY=%~dp0PythonPortable\python.exe"
+SET "PORTABLE_PY=%~dp0PythonPortable\python\python.exe"
 
 REM 2. Prompt user for month
 :ASK_MONTH
@@ -41,7 +41,7 @@ FOR %%A IN (%VENDOR_CHOICE%) DO (
 REM 5. Run the script
 IF EXIST "%PORTABLE_PY%" (
     echo Using portable Python at "%PORTABLE_PY%"
-    "%PORTABLE_PY%" "%~dp0PatchTuesday.py" --month %MONTH_ARG% %VENDOR_FLAGS%
+    "%PORTABLE_PY%" "%~dp0PatchTuesday.py" %MONTH_ARG% %VENDOR_FLAGS%
 ) ELSE (
     python --version >nul 2>&1
     IF ERRORLEVEL 1 (
@@ -50,7 +50,7 @@ IF EXIST "%PORTABLE_PY%" (
         exit /b 1
     ) ELSE (
         echo Using system Python
-        python "%~dp0PatchTuesday.py" --month %MONTH_ARG% %VENDOR_FLAGS%
+        python "%~dp0PatchTuesday.py" %MONTH_ARG% %VENDOR_FLAGS%
     )
 )
 

@@ -208,3 +208,9 @@ __marimo__/
 
 # VScode
 .vscode/
+
+# PythonPortable
+PythonPortable/
+
+# Release
+PatchTuesday.zip
