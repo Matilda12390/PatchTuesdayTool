@@ -14,7 +14,7 @@ No technical knowledge needed — just follow the simple steps below.
 
 ## **Options to Run**
 
-### **Option 1 — Easiest (Python Installed Automatically)**
+### **Option 1 — Average**
 1. Download and install the latest **Python for Windows** from:
    - [https://www.python.org/downloads/windows/](https://www.python.org/downloads/windows/)
    - Tick **"Add Python to PATH"** during install.
@@ -73,7 +73,7 @@ If you don't want to install anything, we provide a ready-to-use package.
 
 **1. Download the Pre-Packaged ZIP**
 
-* [📦 Download ZIP from GitHub Releases](https://github.com/YOUR-REPO-NAME/releases) *(look for `project-portable.zip`)*
+* [📦 Download ZIP from GitHub Releases](https://github.com/Matilda12390/PatchTuesdayTool/releases/tag/Release) *(look for `PatchTuesday.zip`)*
 
 **2. Extract It Anywhere**
 
@@ -83,13 +83,7 @@ If you don't want to install anything, we provide a ready-to-use package.
 
 * Double-click `run.bat`
 * The script will open a console window and start running immediately.
-* By default, it runs:
-
-  ```sh
-  python PatchTuesday.py --microsoft
-  ```
-
-  *(You can edit `run.bat` to change vendor options, e.g., `--adobe`, `--sap`, `--all`)*
+* Follow the prompts
 
 ---
 
