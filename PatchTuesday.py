@@ -15,7 +15,8 @@ MSRC_API_CVRF_URL = "https://api.msrc.microsoft.com/cvrf/v3.0/cvrf/{}"
 MSRC_API_CVE_URL = "https://msrc.microsoft.com/update-guide/en-US/vulnerability/{}"
 HEADERS = {"Accept": "application/json"}
 
-ADOBE_SECURITY_BULLETIN_URL = "https://helpx.adobe.com/au/security/security-bulletin.html"
+ADOBE_SECURITY_BULLETIN_URL = "https://helpx.adobe.com/security/security-bulletin.html"
+# DO NOT USE AU Adobe URL. They don't update it promptly, I guess Adobe hates Australians
 ADOBE_BASE_URL = "https://helpx.adobe.com"
 
 SAP_SECURITY_NOTES_URL = "https://support.sap.com/en/my-support/knowledge-base/security-notes-news/{}.html"
@@ -37,7 +38,7 @@ def save_to_excel(rows, filename):
     ws = wb.active
     ws.title = "Vulnerabilities"
 
-    headers = ["CVE", "Title", "CVSS Score", "Public PoC", "Exploited", "Affected Products", "Release Notes"]
+    headers = ["CVE", "Title", "CVSS Score", "Public PoC", "Exploited", "Affected Products", "Publish Date", "Release Notes"] # RELEASE NOTE MUST ALWAYS BE LAST COLUMN
     ws.append(headers)
 
     for row_data in rows:
@@ -79,10 +80,14 @@ def make_vendor_request(URL, month_selected, type):
     try:
         if type == "HTML":
             response = requests.get(URL)
+            size_bytes = len(response.content)
+            print(f"[*] Retrieved '{size_bytes}' bytes of data")
             response.raise_for_status()  # raises HTTPError for bad status codes
             return response
         elif type == "JSON":
             response = requests.get(URL, headers=HEADERS)
+            size_bytes = len(response.content)
+            print(f"[*] Retrieved '{size_bytes}' bytes of data")
             response.raise_for_status()  # raises HTTPError for bad status codes
             return response.json()
     except requests.exceptions.HTTPError as http_err:
@@ -238,6 +243,7 @@ def get_sap_cves(month_selected):
                 "Publicly Disclosed": "Unknown",
                 "Exploited": "Unknown",
                 "Affected Products": affected_product,
+                "Publish Date": month_selected,
                 "Release Notes": release_note_url
             })
 
@@ -281,7 +287,9 @@ def get_adobe_product_links(patch_tuesday_date, month_selected):
 
         # Try parsing the date
         try:
-            original_date = datetime.strptime(original_date_str, "%m/%d/%Y").date()
+            # Adobe is dumb and managed to output this abomination '08/012/2025' fix to '08/12/2025'
+            raw_date = re.sub(r'\b0(\d{2})\b', r'\1', original_date_str)
+            original_date = datetime.strptime(raw_date, "%m/%d/%Y").date()
         except ValueError:
             continue
 
@@ -310,12 +318,13 @@ def extract_adobe_cves(product_links):
     for entry in product_links:
         product = entry["Product"]
         url = entry["URL"]
+        date = entry["Originally Posted"]
         print(f"[+] Extracting detailed CVEs for {product}")
-        detailed_cves = extract_cve_details_from_bulletin(product, url)
+        detailed_cves = extract_cve_details_from_bulletin(product, url, date)
         all_cves.extend(detailed_cves)
     return all_cves
 
-def extract_cve_details_from_bulletin(product_name, bulletin_url):
+def extract_cve_details_from_bulletin(product_name, bulletin_url, date):
     try:
         response = make_vendor_request(bulletin_url, product_name, "HTML")
         soup = BeautifulSoup(response.text, "html.parser")
@@ -330,23 +339,28 @@ def extract_cve_details_from_bulletin(product_name, bulletin_url):
         if not rows:
             print(f"[!] No rows found in vulnerability details table at {bulletin_url}")
             return []
-        
-        # Extract header cells (first row), supporting <td> or <th> bc adobe sucks
+
+        # Extract header cells (first row) and normalise whitespace/non-breaking spaces
         header_cells = rows[0].find_all(["td", "th"])
-        headers = [cell.get_text(strip=True) for cell in header_cells]
+        headers = [cell.get_text(strip=True).replace("\xa0", " ") for cell in header_cells]
 
-
-        # Map expected columns
+        # Expected column names (case-insensitive match)
         expected_cols = {
             "vuln_cat": ["Vulnerability Category"],
-            "impact": ["Vulnerability Impact"],
-            "severity": ["Severity"],
-            "cvss_score": ["CVSS base score"],
-            "cvss_vector": ["CVSS vector"],
-            "cve_number": ["CVE Numbers", "CVE Number", "CVE Number(s)"]  # <--- support all bc adobe sucks
+            "cvss_score": ["CVSS Base Score", "CVSS base score"],  # match both just in case
+            "cve_number": ["CVE Numbers", "CVE Number", "CVE Number(s)"]
         }
 
-        col_map = resolve_column_indices(headers, expected_cols)
+        # Inline resolve_column_indices
+        col_map = {}
+        for key, possible_names in expected_cols.items():
+            for name in possible_names:
+                for idx, header in enumerate(headers):
+                    if header.lower() == name.lower():
+                        col_map[key] = idx
+                        break
+                if key in col_map:
+                    break
 
         # Check if any expected column is missing
         missing_cols = [k for k in expected_cols if k not in col_map]
@@ -356,17 +370,17 @@ def extract_cve_details_from_bulletin(product_name, bulletin_url):
             return []
 
         cve_details = []
-        for row in rows:
+        for row in rows[1:]:  # skip header row
             cells = row.find_all(["td", "th"])
-            if len(cells) < len(col_map):
+            # Skip if row doesn't have enough columns
+            if len(cells) <= max(col_map.values()):
                 continue
 
-            vuln_cat    = cells[col_map["vuln_cat"]].get_text(strip=True)
-            cvss_score  = cells[col_map["cvss_score"]].get_text(strip=True)
-            cve_raw     = cells[col_map["cve_number"]].get_text(strip=True)
+            vuln_cat   = cells[col_map["vuln_cat"]].get_text(strip=True)
+            cvss_score = cells[col_map["cvss_score"]].get_text(strip=True)
+            cve_raw    = cells[col_map["cve_number"]].get_text(strip=True)
 
-
-            # CVE Numbers may be separated by commas, spaces, or newlines
+            # Extract CVE IDs from the raw text
             cve_list = re.findall(r"CVE-\d{4}-\d{4,7}", cve_raw, re.IGNORECASE)
 
             for cve in cve_list:
@@ -374,29 +388,18 @@ def extract_cve_details_from_bulletin(product_name, bulletin_url):
                     "CVE": cve,
                     "Title": vuln_cat,
                     "CVSS Score": cvss_score,
-                    "Publicly Disclosed": "Unknown",  
-                    "Exploited": "Unknown",           
+                    "Publicly Disclosed": "Unknown",
+                    "Exploited": "Unknown",
                     "Affected Products": product_name,
+                    "Publish Date": date,
                     "Release Notes": bulletin_url
                 })
-
 
         return cve_details
 
     except Exception as e:
         print(f"[!] Failed to extract detailed CVE info from {bulletin_url}: {e}")
         return []
-    
-def resolve_column_indices(header_cells, expected_cols):
-    col_map = {}
-    for idx, header in enumerate(header_cells):
-        header_clean = header.lower().strip()
-        for key, aliases in expected_cols.items():
-            for alias in aliases:
-                if alias.lower() == header_clean:
-                    col_map[key] = idx
-                    break
-    return col_map
     
 def find_vuln_details_table(soup):
     # Look for all <h2> elements
@@ -449,7 +452,7 @@ def extract_vulnerability_info_microsoft(doc, patch_tuesday_date):
         except Exception:
             continue  # skip if date is malformed
 
-        if not (start_of_month <= pub_date <= patch_tuesday_date): # MAY BREAK - if you need all vulns in a month with no end date, replace line with if not (start_of_month <= pub_date)
+        if not (pub_date == patch_tuesday_date): # MAY BREAK - if you need all vulns in a month with no end date, replace line with if not (start_of_month <= pub_date)
             continue  # skip CVEs not published from the start of the month to patch tuesday aka not included in the security update notes. We specify an end date in case the script is being run later in the month
 
         cve = vuln.get("CVE", "N/A")
@@ -491,7 +494,8 @@ def extract_vulnerability_info_microsoft(doc, patch_tuesday_date):
             "Public PoC": disclosed,
             "Exploited": exploited,
             "Affected Products": ", ".join(sorted(product_names)),
-            "Release Notes": release_note
+            "Publish Date": pub_date,
+            "Release Notes": release_note #RELEASE NOTE MUST ALWAYS BE LAST COLUMN
         })
 
     return rows
@@ -504,9 +508,9 @@ def start_microsoft_workflow(year, month_abbr, patch_tuesday_date):
     doc = make_vendor_request(MSRC_API_CVRF_URL.format(month_normalized), month_normalized, "JSON")
     print(f"[*] Microsoft Patch Tuesday data for {month_normalized} retrieved successfully")
 
-    print(f"[*] Fetching Microsoft API data for {month_normalized}...")
+    print(f"[*] Sorting Microsoft API data for {month_normalized}...")
     rows = extract_vulnerability_info_microsoft(doc,patch_tuesday_date)
-    print(f"[*] Microsoft API data for {month_normalized} retrieved successfully")
+    print(f"[*] Microsoft API data for {month_normalized} sorted successfully")
 
     filename = f"Microsoft_Patch_Tuesday_{month_abbr}-{year}.xlsx"
     save_to_excel(rows, filename)

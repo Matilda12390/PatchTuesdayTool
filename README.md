@@ -6,40 +6,118 @@ No technical knowledge needed — just follow the simple steps below.
 
 ---
 
-## ✅ What You Need
-
-- **Python 3.x installed** on your computer  
-  If you don’t have it, download it from: https://www.python.org/downloads/
-
-You **do not need to install anything else manually** — the tool handles it for you.
+## **Requirements**
+- Windows 10/11 (no Python required for Option 4)
+- Internet connection (for fetching advisories and enrichment data)
 
 ---
+
+## **Options to Run**
+
+### **Option 1 — Easiest (Python Installed Automatically)**
+1. Download and install the latest **Python for Windows** from:
+   - [https://www.python.org/downloads/windows/](https://www.python.org/downloads/windows/)
+   - Tick **"Add Python to PATH"** during install.
+
+2. Download this repository as ZIP and extract it.
+
+3. Open Command Prompt in the extracted folder:
+   ```sh
+   pip install -r requirements.txt
+   python PatchTuesday.py --microsoft
+````
+
+---
+
+### **Option 2 — With WSL**
+
+1. Install **Windows Subsystem for Linux (WSL)** if not already installed:
+
+   ```powershell
+   wsl --install
+   ```
+
+   *(You may need to reboot)*
+
+2. From your WSL terminal:
+
+   ```sh
+   sudo apt update && sudo apt install python3-pip -y
+   pip3 install -r requirements.txt
+   python3 PatchTuesday.py --microsoft
+   ```
+
+---
+
+### **Option 3 — Manual Python Install Without PATH**
+
+1. Download the **Embeddable Python ZIP** from:
+
+   * [https://www.python.org/downloads/windows/](https://www.python.org/downloads/windows/)
+     *(Look for "Windows embeddable package" for your architecture — e.g., `amd64`)*
+
+2. Extract to a folder, e.g. `C:\PythonPortable`.
+
+3. From Command Prompt in your project folder:
+
+   ```sh
+   C:\PythonPortable\python.exe -m pip install -r requirements.txt
+   C:\PythonPortable\python.exe PatchTuesday.py --microsoft
+   ```
+
+---
+
+### **Option 4 — Ultra-Lazy: Just Unzip & Run (No Setup Needed)**
+
+If you don't want to install anything, we provide a ready-to-use package.
+
+**1. Download the Pre-Packaged ZIP**
+
+* [📦 Download ZIP from GitHub Releases](https://github.com/YOUR-REPO-NAME/releases) *(look for `project-portable.zip`)*
+
+**2. Extract It Anywhere**
+
+* For example: `C:\MyTools\Project\`
+
+**3. Run the Script**
+
+* Double-click `run.bat`
+* The script will open a console window and start running immediately.
+* By default, it runs:
+
+  ```sh
+  python PatchTuesday.py --microsoft
+  ```
+
+  *(You can edit `run.bat` to change vendor options, e.g., `--adobe`, `--sap`, `--all`)*
+
+---
+
+#### **What's Inside the ZIP**
+
+* **Portable Python** — runs without installing to Windows
+* **All Dependencies** — already installed, no `pip` needed
+* **Your Script** — ready to execute
+* **`run.bat`** — one-click launcher
+
+---
+
+#### **Troubleshooting**
+
+* If Windows SmartScreen blocks the `.bat` file, click **More info → Run anyway**.
+* No admin rights are required.
+* Works entirely offline after download (except when the script itself fetches data).
+
 
 ## 📦 What's Included
 ```
 PatchTuesdayTool/
 ├── PatchTuesday.py ← Main script
 ├── requirements.txt ← Python dependencies
-├── run_patchtuesday.bat ← Run this on Windows
 ├── README.md ← You are here
 ```
 
 ## ▶️ How to Use
-
-### 🪟 Windows Users
-
-1. **Unzip** the folder if it's in a `.zip` file
-2. **Double-click** `run_patchtuesday.bat`
-
-Or you can open a Command Prompt and run:
-
-```cmd
-run_patchtuesday.bat --month Jul-2025 --microsoft --adobe --sap
-```
-You can also fetch everything at once using:
-```cmd
-run_patchtuesday.bat --month Jul-2025 --all
-```
 
 ⚙️ Available Options
 | Option        | Description                                           |
@@ -71,28 +149,23 @@ This spreadsheet contains:
 
     Affected Products
 
+    Vulnerability Publish Date
+
     Link to the original security bulletin
 
 ## ❓ Example
 
 To get CVEs from all vendors for July 2025:
 ```cmd
-run_patchtuesday.bat --month Jul-2025 --all
+python3 PatchTuesday.py --month Jul-2025 --all
 ```
 To fetch only Microsoft and SAP:
 ```cmd
-run_patchtuesday.bat --month Jul-2025 --microsoft --sap
-```
-
-You can also just run the python script by itself if you have all the requirements installed already:
-```python
-python3 PatchTuesday.py --month Jul-2025 --all
+python3 PatchTuesday.py --month Jul-2025 --microsoft --sap
 ```
 
 
 ## 💡 Tips
-
-    You only need to run run_patchtuesday.bat — the tool sets everything up for you.
 
     The first run may take a few seconds to install packages.
 
@@ -100,3 +173,5 @@ python3 PatchTuesday.py --month Jul-2025 --all
 
 ## 📬 Questions?
 No questions allowed. 
+
+
