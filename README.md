@@ -25,7 +25,7 @@ No technical knowledge needed — just follow the simple steps below.
    ```sh
    pip install -r requirements.txt
    python PatchTuesday.py --microsoft
-```
+   ```
 
 ---
 
