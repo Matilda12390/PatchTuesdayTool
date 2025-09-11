@@ -23,7 +23,7 @@ jobs:
           python3 PatchTuesday.py $REQ_DATE --all
 
       - name: Upload build
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v4
         with:
             name: latest
             path: .
