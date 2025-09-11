@@ -1,0 +1,29 @@
+name: "Update the stuff"
+on:
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    if: ${{ github.ref == 'refs/heads/main' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip' # caching pip dependencies
+      - run: pip install -r requirements.txt
+
+      - name: Update Excel files
+        env:
+          REQ_DATE: Jul-2025
+        run: |
+          python3 PatchTuesday.py $REQ_DATE --all
+
+      - name: Upload build
+        uses: actions/upload-artifact@v5
+        with:
+            name: latest
+            path: .
