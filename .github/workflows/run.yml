@@ -1,4 +1,4 @@
-name: "Update the stuff"
+name: "Collect Patch Tuesday Information"
 
 on:
   workflow_dispatch:
@@ -24,8 +24,15 @@ on:
       year:
         description: "Select Patch Tuesday year"
         required: true
-        type: string
-        default: ""   # will be filled dynamically at runtime
+        type: choice
+        options:
+          - "2025"
+          - "2026"
+          - "2027"
+          - "2028"
+          - "2029"
+          - "2030"
+        default: "2025"
       vendors:
         description: "Vendors to update (space-separated, e.g. '--microsoft --sap')"
         required: true
