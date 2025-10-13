@@ -1,0 +1,68 @@
+name: "Update the stuff"
+
+on:
+  workflow_dispatch:
+    inputs:
+      month:
+        description: "Select Patch Tuesday month"
+        required: true
+        type: choice
+        options:
+          - Jan
+          - Feb
+          - Mar
+          - Apr
+          - May
+          - Jun
+          - Jul
+          - Aug
+          - Sep
+          - Oct
+          - Nov
+          - Dec
+        default: Oct
+      year:
+        description: "Select Patch Tuesday year"
+        required: true
+        type: string
+        default: ""   # will be filled dynamically at runtime
+      vendors:
+        description: "Vendors to update (space-separated, e.g. '--microsoft --sap')"
+        required: true
+        default: "--all"
+
+jobs:
+  deploy:
+    if: ${{ github.ref == 'refs/heads/main' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+      - run: pip install -r requirements.txt
+
+      - name: Compute dynamic year default
+        id: year
+        run: |
+          # If user left year blank, pick current year
+          YEAR="${{ github.event.inputs.year }}"
+          if [ -z "$YEAR" ]; then
+            YEAR=$(date +%Y)
+          fi
+          echo "year=$YEAR" >> $GITHUB_OUTPUT
+
+      - name: Update Excel files
+        run: |
+          REQ_DATE="${{ github.event.inputs.month }}-${{ steps.year.outputs.year }}"
+          echo "Using DATE=$REQ_DATE"
+          python3 PatchTuesday.py "$REQ_DATE" ${{ github.event.inputs.vendors }}
+
+      - name: Upload build
+        uses: actions/upload-artifact@v4
+        with:
+          name: latest
+          path: .
