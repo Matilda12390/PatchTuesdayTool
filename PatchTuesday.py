@@ -275,7 +275,7 @@ def get_oracle_cves(month_selected):
             })
 
     if not all_rows:
-        print(f"[!] No Oracle CVEs found for {month_selected}. Check if they have been released at {ORACLE_SECURITY_NOTES_URL.format(month_selected)}")
+        print(f"[!] No Oracle CVEs found for {month_selected}. Check if they have been released at https://www.oracle.com/au/security-alerts/")
         return []
     
     print(f"[*] Oracle Patch Tuesday data for {month_selected} retrieved successfully")
