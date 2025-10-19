@@ -21,6 +21,8 @@ ADOBE_BASE_URL = "https://helpx.adobe.com"
 
 SAP_SECURITY_NOTES_URL = "https://support.sap.com/en/my-support/knowledge-base/security-notes-news/{}.html"
 
+ORACLE_SECURITY_NOTES_URL = "https://www.oracle.com/security-alerts/cpu{}.html"
+
 # General reusable functions across Vendors
 # - save_to_excel - given the rows and filename, save the file as xlsx
 # - get_patch_tuesday - given the users input, get the date of patch tuesday that month
@@ -57,10 +59,11 @@ def save_to_excel(rows, filename):
         wb.save(filename)
     except PermissionError:
         print(f"[!] Permission denied while saving '{filename}'. Is it open in Excel?")
-        sys.exit(1)
+        return
     except Exception as e:
         print(f"[!] Failed to save Excel file '{filename}': {e}")
-        sys.exit(1)
+        return
+    print(f"[+] Done. Output saved to '{filename}'.")
 
 def get_patch_tuesday(target_year, target_month):
     # Find the first day of the month
@@ -95,10 +98,10 @@ def make_vendor_request(URL, month_selected, type):
             print(f"[404] Patch Tuesday release for month '{month_selected}' not found.")
         else:
             print(f"[HTTP {response.status_code}] Error fetching release '{month_selected}': {http_err}")
-        sys.exit(1)
+        return
     except requests.exceptions.RequestException as e:
         print(f"[!] Connection error or invalid response: {e}")
-        sys.exit(1)
+        return
 
 def check_feedly(cve):
     print(f"[*] Fetching Feedly enrichment for {cve}...")
@@ -163,6 +166,121 @@ def enrich_cves_with_feedly(cve_list):
 
         # Optional: avoid hammering Feedly too fast
         time.sleep(1)
+    print(f"[*] Feedly enrichment retrieved successfully!")
+
+# Oracle specific functions
+def start_oracle_workflow(patch_tuesday_date, month_selected):
+    print(f"[*] Fetching Oracle Patch Tuesday data for {month_selected}...")
+    oracle_cves = get_oracle_cves(month_selected)
+
+    # MAY BREAK - if Feedly enrichment breaks and needs to be removed, remove the below 3 lines
+    if oracle_cves:
+        print(f"[*] Fetching Feedly enrichment... (this will take 1 second per CVE)")
+        enrich_cves_with_feedly(oracle_cves)
+        filename = f"Oracle-Patch-Tuesday-{month_selected}.xlsx"
+        save_to_excel(oracle_cves, filename)
+
+def get_oracle_cves(month_selected):
+    print(f"[*] Fetching Oracle security page for {month_selected}...")
+
+    # Convert 'Jul-2025' to 'jul2025' (Oracle's required format for the URL).
+    full_month = datetime.strptime(month_selected, "%b-%Y").strftime("%b%Y").lower()
+
+    # construct URL - adjust if you have a canonical oracle URL pattern
+    oracle_url = ORACLE_SECURITY_NOTES_URL.format(full_month)
+
+    try:
+        response = make_vendor_request(oracle_url, full_month, "HTML")
+    except Exception as e:
+        # make_vendor_request already prints errors; ensure we gracefully exit
+        print(f"[!] Could not fetch Oracle page for {month_selected}: {e}")
+        return []
+
+    # If make_vendor_request returned a Response-like object, extract text; if it returned json or str, adapt
+    html = response.text if hasattr(response, "text") else str(response)
+
+    # quick 404 check using response if available
+    if hasattr(response, "status_code") and response.status_code == 404:
+        print(f"[!] Oracle advisory page not found for {month_selected} (404). Skipping Oracle.")
+        return []
+
+    soup = BeautifulSoup(html, "html.parser")
+
+    all_rows = []
+
+    tables = soup.find_all("table")
+    for table in tables:
+        thead = table.find("thead")
+        if not thead or len(thead.find_all("tr")) < 2:
+            continue  # skip irrelevant tables
+
+        # Extract headers
+        headers = []
+        top_row, sub_row = thead.find_all("tr")[:2]
+
+        # Top-level headers (skip CVSS parent)
+        for th in top_row.find_all("th"):
+            if th.has_attr("colspan") and th.text.strip().startswith("CVSS"):
+                # Second row: detailed CVSS headers
+                for th in sub_row.find_all("th"):
+                    headers.append(th.text.strip().replace("\n", " "))
+                continue
+            headers.append(th.text.strip().replace("\n", " "))
+
+        # Normalize headers to lowercase for mapping
+        headers_norm = [h.lower() for h in headers]
+
+        # Only keep tables that contain CVE IDs and Base Score
+        if not any("cve" in h for h in headers_norm) or not any("base score" in h for h in headers_norm):
+            continue
+
+        # Map columns
+        col_map = {}
+        for i, h in enumerate(headers_norm):
+            if "cve" in h: col_map["cve"] = i
+            if "product" in h: col_map["product"] = i
+            if "component" in h: col_map["component"] = i
+            if "supported versions" in h: col_map["versions"] = i
+            if "base score" in h: col_map["cvss_score"] = i
+
+        # Extract rows
+        for tr in table.find("tbody").find_all("tr"):
+            cells = tr.find_all(["th", "td"])
+            def safe(idx):
+                return cells[idx].get_text(" ", strip=True).replace("\xa0"," ") if idx is not None and idx < len(cells) else ""
+
+            cve_text = safe(col_map.get("cve"))
+            if not cve_text:
+                found = re.findall(r"CVE-\d{4}-\d{4,7}", tr.get_text(" ", strip=True))
+                if not found: 
+                    continue
+                cve_text = found[0]
+
+            component = safe(col_map.get("component"))
+            product = safe(col_map.get("product")) or component
+            versions = safe(col_map.get("versions"))
+            base_score = safe(col_map.get("cvss_score"))
+
+            title = f"Component affected: {component}" if component else ""
+            affected_products = f"{product} (versions: {versions})" if versions else product
+
+            all_rows.append({
+                "CVE": cve_text,
+                "Title": title,
+                "CVSS Score": base_score,
+                "Public PoC": "Unknown",
+                "Exploited": "Unknown",
+                "Affected Products": affected_products,
+                "Release Notes": oracle_url
+            })
+
+    if not all_rows:
+        print(f"[!] No Oracle CVEs found for {month_selected}. Check if they have been released at {ORACLE_SECURITY_NOTES_URL.format(month_selected)}")
+        return []
+    
+    print(f"[*] Oracle Patch Tuesday data for {month_selected} retrieved successfully")
+    return all_rows
+
 
 # SAP specific functions
 # - get_sap_cves - nice and easy, we scrape a single page of all the information in the table
@@ -170,16 +288,16 @@ def enrich_cves_with_feedly(cve_list):
 def start_sap_workflow(patch_tuesday_date, month_selected):
     print(f"[*] Fetching SAP Patch Tuesday data for {month_selected}...")
     sap_cves = get_sap_cves(month_selected)
-    print(f"[*] SAP Patch Tuesday data for {month_selected} retrieved successfully")
 
-    # MAY BREAK - if Feedly enrichment breaks and needs to be removed, remove the below 3 lines
-    print(f"[*] Fetching Feedly enrichment... (this will take 1 second per CVE)")
-    enrich_cves_with_feedly(sap_cves)
-    print(f"[*] Feedly enrichment retrieved successfully!")
+    if sap_cves:
+        # MAY BREAK - if Feedly enrichment breaks and needs to be removed, remove the below 3 lines
+        print(f"[*] Fetching Feedly enrichment... (this will take 1 second per CVE)")
+        enrich_cves_with_feedly(sap_cves)
 
-    filename = f"SAP-Patch-Tuesday-{month_selected}.xlsx"
-    save_to_excel(sap_cves, filename)
-    print(f"[+] Done. Output saved to '{filename}'.")
+        filename = f"SAP-Patch-Tuesday-{month_selected}.xlsx"
+        save_to_excel(sap_cves, filename)
+    else:
+        print(f"[!] No SAP CVEs found, no output produced")
 
 def get_sap_cves(month_selected):
     sap_cves = []
@@ -250,6 +368,7 @@ def get_sap_cves(month_selected):
     except Exception as e:
         print(f"[!] Error parsing SAP CVEs: {e}")
 
+    print(f"[*] SAP Patch Tuesday data for {month_selected} retrieved successfully")
     return sap_cves
 
 # Adobe specific functions
@@ -309,6 +428,8 @@ def get_adobe_product_links(patch_tuesday_date, month_selected):
                 "URL": product_url,
                 "Originally Posted": original_date_str
             })
+    if not product_links:
+        print(f"[!] No matching rows found in bulletin for selected month. Adobe cannot support historial data gathering. If you are trying to grab old data, this is why you are seeing this.")
 
     return product_links
 
@@ -417,14 +538,15 @@ def start_adobe_workflow(patch_tuesday_date, month_selected):
     product_links = get_adobe_product_links(patch_tuesday_date, month_selected)
     all_cves = extract_adobe_cves(product_links)
 
-    # MAY BREAK - if Feedly enrichment breaks and needs to be removed, remove the below 3 lines
-    print(f"[*] Fetching Feedly enrichment... (this will take 1 second per CVE)")
-    enrich_cves_with_feedly(all_cves)
-    print(f"[*] Feedly enrichment retrieved successfully!")
+    if all_cves:
+        # MAY BREAK - if Feedly enrichment breaks and needs to be removed, remove the below 3 lines
+        print(f"[*] Fetching Feedly enrichment... (this will take 1 second per CVE)")
+        enrich_cves_with_feedly(all_cves)
 
-    filename = f"Adobe-Patch-Tuesday-{month_selected}.xlsx"
-    save_to_excel(all_cves, filename)
-    print(f"[+] Done. Output saved to '{filename}'.")
+        filename = f"Adobe-Patch-Tuesday-{month_selected}.xlsx"
+        save_to_excel(all_cves, filename)
+    else:
+        print(f"[!] No Adobe CVEs found, no output produced")
 
 # Microsoft specific functions
 #  - resolve_product_name_microsoft - the affected products are just listed as IDs in the CVE information returned by the API, gotta convert to product name by checking a different section of the API response
@@ -514,7 +636,6 @@ def start_microsoft_workflow(year, month_abbr, patch_tuesday_date):
 
     filename = f"Microsoft_Patch_Tuesday_{month_abbr}-{year}.xlsx"
     save_to_excel(rows, filename)
-    print(f"[+] Done. Output saved to '{filename}'.")
 
 # main is main
 
@@ -523,7 +644,8 @@ def main():
     parser.add_argument("--microsoft", action="store_true", help="Fetch data from Microsoft CVRF API feed")
     parser.add_argument("--adobe", action="store_true", help="Fetch data from Adobe Security Bulletin and enrich with Feedly")
     parser.add_argument("--sap", action="store_true", help="Fetch data from SAP Security Notes and enrich with Feedly")
-    parser.add_argument("--all", action="store_true", help="Get all data from Microsoft, Adobe and SAP")
+    parser.add_argument("--oracle", action="store_true", help="Fetch data from Oracle Security Notes and enrich with Feedly")
+    parser.add_argument("--all", action="store_true", help="Get all data from Microsoft, Adobe, SAP and Oracle")
     parser.add_argument("month", help="Target month in format e.g. Jul-2025")
 
     args = parser.parse_args()
@@ -541,14 +663,17 @@ def main():
         start_microsoft_workflow(year, month_abbr, patch_tuesday_date)
         start_adobe_workflow(patch_tuesday_date, month_selected)
         start_sap_workflow(patch_tuesday_date, month_selected)
+        start_oracle_workflow(patch_tuesday_date, month_selected)
     # If at least one individual flag is set
-    elif args.microsoft or args.adobe or args.sap:
+    elif args.microsoft or args.adobe or args.sap or args.oracle:
         if args.microsoft:
             start_microsoft_workflow(year, month_abbr, patch_tuesday_date)
         if args.adobe:
             start_adobe_workflow(patch_tuesday_date, month_selected)
         if args.sap:
             start_sap_workflow(patch_tuesday_date, month_selected)
+        if args.oracle:
+            start_oracle_workflow(patch_tuesday_date, month_selected)
     # No valid vendor flag passed
     else:
         print("Error: Please specify a vendor. Supported options: --microsoft  --adobe  --sap  --all")

@@ -19,6 +19,7 @@ You can now run it directly from **GitHub Actions** (no setup required), or run 
      - `--microsoft`
      - `--adobe`
      - `--sap`
+     - `--oracle`
      - Or any combination, e.g. `--microsoft --sap`
 5. Wait for the workflow to finish (a few minutes).
 6. Download the results:
@@ -63,6 +64,7 @@ PatchTuesdayTool/
 | `--microsoft` | Include Microsoft Patch Tuesday CVEs                  |
 | `--adobe`     | Include Adobe CVEs released on Patch Tuesday          |
 | `--sap`       | Include SAP Patch Tuesday CVEs                        |
+| `--oracle`    | Include Oracle Patch Tuesday CVEs (Quarterly release) |
 | `--all`       | Run all of the above in one go                        |
 
 
