@@ -9,19 +9,7 @@ You can now run it directly from **GitHub Actions** (no setup required), or run 
 ## 🚀 Running with GitHub Actions (Recommended)
 
 1. Go to the **Actions** tab in this repository.
-2. Select the workflow **“Collect Patch Tuesday Information”**.
-3. Click **“Run workflow”**.
-4. Choose:
-   - **Month** (dropdown: Jan–Dec)
-   - **Year** (2025-2030)
-   - **Vendors**:
-     - `--all`
-     - `--microsoft`
-     - `--adobe`
-     - `--sap`
-     - `--oracle`
-     - Or any combination, e.g. `--microsoft --sap`
-5. Wait for the workflow to finish (a few minutes).
+2. The script is scheduled to run every second Tuesday of the month. The most recent entry is the last scheduled run. 
 6. Download the results:
    - Scroll to the bottom of the run → **Artifacts → excel-files.zip**
    - Inside you’ll find the generated Excel file(s)
