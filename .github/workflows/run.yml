@@ -20,28 +20,6 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
-      - name: Check if Patch Tuesday (2nd Tuesday UTC)
-        id: patchcheck
-        run: |
-          DAY_OF_MONTH=$(date +%d)
-          DAY_OF_WEEK=$(date +%u) # 2 = Tuesday (UTC)
-
-          echo "UTC date/time: $(date)"
-
-          # Second Tuesday = day 8–14 AND Tuesday
-          if [ "$DAY_OF_WEEK" -eq 2 ] \
-             && [ "$DAY_OF_MONTH" -ge 8 ] \
-             && [ "$DAY_OF_MONTH" -le 14 ]; then
-            echo "run=true" >> $GITHUB_OUTPUT
-          else
-            echo "Not second Tuesday (UTC) — exiting."
-            echo "run=false" >> $GITHUB_OUTPUT
-          fi
-
-      - name: Stop if not Patch Tuesday
-        if: steps.patchcheck.outputs.run != 'true'
-        run: exit 0
-
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
